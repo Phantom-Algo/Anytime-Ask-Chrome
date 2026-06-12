@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Anytime Ask 设置</title>
+    <link rel="stylesheet" href="./options.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="page-header">
+        <div>
+          <h1>Anytime Ask 设置</h1>
+          <p>配置本地 BYOK provider。</p>
+        </div>
+      </header>
+
+      <form class="panel" id="settingsForm">
+        <label class="field">
+          <span>当前 Provider</span>
+          <select id="provider"></select>
+        </label>
+
+        <label class="field">
+          <span>API Key</span>
+          <input id="apiKey" type="password" autocomplete="off" spellcheck="false">
+        </label>
+
+        <label class="field">
+          <span>Base URL</span>
+          <input id="baseUrl" type="url" spellcheck="false" required>
+        </label>
+
+        <label class="field">
+          <span>Model</span>
+          <input id="model" type="text" spellcheck="false" required>
+        </label>
+
+        <div class="grid">
+          <label class="field">
+            <span>Max Tokens</span>
+            <input id="maxTokens" type="number" min="1" step="1">
+          </label>
+
+          <label class="field" id="temperatureRow">
+            <span>Temperature</span>
+            <input id="temperature" type="number" min="0" max="2" step="0.1">
+          </label>
+        </div>
+
+        <section class="subpanel" id="deepseekFields" hidden>
+          <label class="check">
+            <input id="thinkingEnabled" type="checkbox">
+            <span>启用 DeepSeek thinking</span>
+          </label>
+
+          <label class="field">
+            <span>Reasoning Effort</span>
+            <select id="reasoningEffort">
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+            </select>
+          </label>
+        </section>
+
+        <label class="field">
+          <span>允许使用的 URL 前缀</span>
+          <textarea id="allowedUrlPrefixes" spellcheck="false" rows="5" placeholder="https://chatgpt.com/&#10;https://chat.deepseek.com/"></textarea>
+          <small>每行一个前缀。只有当前页面 URL 以这些前缀之一开头时，划选追问功能才会启用。</small>
+        </label>
+
+        <div class="actions">
+          <button class="primary" type="submit" id="saveButton">保存</button>
+          <button type="button" id="testButton">测试配置</button>
+        </div>
+
+        <p class="status" id="status" role="status"></p>
+      </form>
+
+      <section class="notes">
+        <h2>本地存储</h2>
+        <p>API Key、URL 前缀白名单和追问历史保存在当前浏览器的扩展本地存储中。白名单之外的页面不会启用划选追问；发送追问时，划选内容、页面上下文和插件会话历史会发送给当前 provider。</p>
+      </section>
+    </main>
+
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>

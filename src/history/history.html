@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>历史 · Anytime Ask</title>
+    <link rel="stylesheet" href="./history.css">
+  </head>
+  <body>
+    <main class="layout">
+      <aside class="sidebar">
+        <header class="sidebar-header">
+          <div>
+            <h1>历史</h1>
+            <p id="count">0 条</p>
+          </div>
+          <button type="button" id="clearAll">清空</button>
+        </header>
+        <input id="search" type="search" placeholder="搜索...">
+        <section class="list" id="list"></section>
+      </aside>
+
+      <section class="detail" id="detail">
+        <div class="empty">选择一条历史记录查看详情。</div>
+      </section>
+    </main>
+
+    <script src="../shared/vendor/markdown-it.min.js"></script>
+    <script src="../shared/vendor/highlight.min.js"></script>
+    <script src="../shared/markdown-render.js"></script>
+    <link rel="stylesheet" href="../shared/vendor/highlight-github-dark.min.css">
+    <script type="module" src="./history.js"></script>
+  </body>
+</html>

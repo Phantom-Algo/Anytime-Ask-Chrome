@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Anytime Ask</title>
+    <link rel="stylesheet" href="./popup.css">
+  </head>
+  <body>
+    <main class="popup">
+      <header>
+        <h1>Anytime Ask</h1>
+        <p>划选文本，点击追问</p>
+      </header>
+
+      <section class="status">
+        <div>
+          <span>Provider</span>
+          <strong id="provider">-</strong>
+        </div>
+        <div>
+          <span>Model</span>
+          <strong id="model">-</strong>
+        </div>
+        <div>
+          <span>API Key</span>
+          <strong id="apiKey">-</strong>
+        </div>
+        <div>
+          <span>历史</span>
+          <strong id="historyCount">0</strong>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="button" id="openOptions">设置</button>
+        <button type="button" id="openHistory">历史</button>
+      </div>
+    </main>
+
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Anytime Ask",
+  "short_name": "AnytimeAsk",
+  "version": "0.1.0",
+  "description": "Select text on AI pages and ask follow-up questions without polluting the original conversation.",
+  "minimum_chrome_version": "114",
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Anytime Ask"
+  },
+  "options_page": "src/options/options.html",
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://api.deepseek.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/shared/vendor/markdown-it.min.js",
+        "src/shared/vendor/highlight.min.js",
+        "src/shared/markdown-render.js",
+        "src/content/content-script.js"
+      ],
+      "css": [
+        "src/content/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
