@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Anytime Ask",
   "short_name": "AnytimeAsk",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "Select text on AI pages and ask follow-up questions without polluting the original conversation.",
   "minimum_chrome_version": "114",
   "action": {
@@ -38,6 +38,7 @@
       "js": [
         "src/shared/vendor/markdown-it.min.js",
         "src/shared/vendor/highlight.min.js",
+        "src/shared/vendor/katex/katex.min.js",
         "src/shared/markdown-render.js",
         "src/content/content-script.js"
       ],
@@ -45,6 +46,12 @@
         "src/content/content.css"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": ["<all_urls>"],
+      "resources": ["src/shared/vendor/katex/fonts/*", "src/shared/vendor/katex/katex.min.css"]
     }
   ]
 }

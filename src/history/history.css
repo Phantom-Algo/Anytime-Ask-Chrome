@@ -378,6 +378,35 @@ button:hover {
   font-weight: 600;
 }
 
+/* ── KaTeX math rendering ─────────────────────────────── */
+.katex-display {
+  display: block;
+  margin: 10px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex-display > .katex {
+  display: block;
+  text-align: center;
+}
+
+.katex {
+  font-size: 1.05em;
+  line-height: 1.2;
+}
+
+/* Raw LaTeX fallback (shown when KaTeX fails to render) */
+.aa-latex-raw {
+  display: inline-block;
+  border-radius: 4px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 1px 6px;
+}
+
 .messages {
   display: grid;
   gap: 12px;

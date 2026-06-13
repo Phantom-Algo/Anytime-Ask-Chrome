@@ -569,6 +569,13 @@
     host.id = "anytime-ask-panel-host";
     const shadow = host.attachShadow({ mode: "open" });
     shadow.innerHTML = getPanelMarkup();
+
+    // Inject KaTeX CSS into the Shadow DOM for LaTeX rendering
+    var katexStyle = document.createElement("link");
+    katexStyle.rel = "stylesheet";
+    katexStyle.href = chrome.runtime.getURL("src/shared/vendor/katex/katex.min.css");
+    shadow.appendChild(katexStyle);
+
     document.documentElement.appendChild(host);
 
     state.panelHost = host;
@@ -1385,6 +1392,35 @@
           .aa-divider {
             display: none !important;
           }
+        }
+
+        /* ── KaTeX math rendering ───────────────────────── */
+        .katex-display {
+          display: block;
+          margin: 10px 0;
+          overflow-x: auto;
+          overflow-y: hidden;
+        }
+
+        .katex-display > .katex {
+          display: block;
+          text-align: center;
+        }
+
+        .katex {
+          font-size: 1.05em;
+          line-height: 1.2;
+        }
+
+        /* Raw LaTeX fallback (shown when KaTeX fails to render) */
+        .aa-latex-raw {
+          display: inline-block;
+          border-radius: 4px;
+          background: #fff7ed;
+          color: #9a3412;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 0.88em;
+          padding: 1px 6px;
         }
       </style>
       <div class="aa-shell" data-history-open="false">
