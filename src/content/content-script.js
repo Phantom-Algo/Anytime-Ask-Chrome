@@ -657,6 +657,7 @@
     shadow.querySelector('[data-action="new"]').addEventListener("click", createNewConversation);
     shadow.querySelector('[data-action="rename"]').addEventListener("click", renameCurrentConversation);
     shadow.querySelector('[data-action="send"]').addEventListener("click", sendUserMessage);
+    shadow.querySelector('[data-action="clear-quote"]').addEventListener("click", clearQuoteText);
     const textarea = shadow.querySelector("textarea");
     textarea.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -960,10 +961,36 @@
           display: grid;
         }
 
+        .aa-quote-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
         .aa-quote-label {
           color: #64748b;
           font-size: 12px;
           line-height: 16px;
+        }
+
+        .aa-quote-clear {
+          width: 20px;
+          height: 20px;
+          padding: 2px;
+          border: none;
+          background: transparent;
+          color: #94a3b8;
+          transition: color 0.15s ease;
+        }
+
+        .aa-quote-clear svg {
+          width: 14px;
+          height: 14px;
+        }
+
+        .aa-quote-clear:hover {
+          color: #ef4444;
+          border-color: transparent;
         }
 
         .aa-quote-text {
@@ -1513,7 +1540,12 @@
             </div>
           </header>
           <section class="aa-quote">
-            <div class="aa-quote-label" data-field="quote-label">划选内容</div>
+            <div class="aa-quote-header">
+              <div class="aa-quote-label" data-field="quote-label">划选内容</div>
+              <button class="aa-icon-button aa-quote-clear" type="button" data-action="clear-quote" title="清除划选内容">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+              </button>
+            </div>
             <div class="aa-quote-text" data-field="quote"></div>
           </section>
           <div class="aa-status" data-field="status"></div>
@@ -1890,6 +1922,30 @@
     }
   }
 
+  async function clearQuoteText() {
+    const quoteText = state.activeSelectionText || state.conversation?.selectedText || "";
+    if (!quoteText) {
+      return;
+    }
+
+    state.activeSelectionText = "";
+
+    if (state.conversation?.id) {
+      // Update the local conversation state immediately for instant UI feedback
+      state.conversation = { ...state.conversation, selectedText: "" };
+
+      // Persist the change to storage in the background
+      sendRuntimeMessage({
+        type: MESSAGE_TYPES.clearConversationSelection,
+        conversationId: state.conversation.id
+      }).catch(() => {
+        // Silently ignore background errors — local state is already updated
+      });
+    }
+
+    renderPanel();
+  }
+
   async function loadConversation(conversationId) {
     state.error = "";
     const response = await sendRuntimeMessage({
@@ -2263,6 +2319,10 @@
     state.shadow.querySelector('[data-field="input"]').disabled = disabled;
     state.shadow.querySelector('[data-action="send"]').disabled = disabled;
     state.shadow.querySelector('[data-action="rename"]').disabled = !state.conversation;
+    const clearQuoteBtn = state.shadow.querySelector('[data-action="clear-quote"]');
+    if (clearQuoteBtn) {
+      clearQuoteBtn.disabled = disabled;
+    }
   }
 
   function focusComposer() {

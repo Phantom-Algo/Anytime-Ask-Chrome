@@ -87,6 +87,8 @@ async function handleMessage(message) {
         url: chrome.runtime.getURL("src/history/history.html")
       });
       return {};
+    case MESSAGE_TYPES.clearConversationSelection:
+      return clearConversationSelection(message.conversationId);
     case MESSAGE_TYPES.testProvider:
       return {
         reply: await testProvider(mergeSettings(message.settings))
@@ -389,6 +391,26 @@ async function renameConversation(conversationId, title) {
     ...conversation,
     title: nextTitle.slice(0, 80),
     titleEdited: true,
+    updatedAt: new Date().toISOString()
+  };
+
+  await saveConversation(updatedConversation);
+  return { conversation: updatedConversation };
+}
+
+async function clearConversationSelection(conversationId) {
+  if (!conversationId) {
+    return {};
+  }
+
+  const conversation = await getConversation(conversationId);
+  if (!conversation) {
+    return {};
+  }
+
+  const updatedConversation = {
+    ...conversation,
+    selectedText: "",
     updatedAt: new Date().toISOString()
   };
 
