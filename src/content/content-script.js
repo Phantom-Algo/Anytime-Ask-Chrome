@@ -12,7 +12,8 @@
     loadConversation: "AA_LOAD_CONVERSATION",
     renameConversation: "AA_RENAME_CONVERSATION",
     deleteConversation: "AA_DELETE_CONVERSATION",
-    openOptions: "AA_OPEN_OPTIONS"
+    openOptions: "AA_OPEN_OPTIONS",
+    openFromContextMenu: "AA_OPEN_FROM_CONTEXT_MENU"
   };
 
   const STREAM_PORT_NAME = "AA_STREAM_MESSAGE_PORT";
@@ -116,6 +117,20 @@
           clearSelectionState();
         });
       }
+    });
+  }
+
+  // Listen for messages from the service worker (e.g. context menu clicks)
+  if (globalThis.chrome?.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message?.type === MESSAGE_TYPES.openFromContextMenu) {
+        openConversationWithoutSelection().catch((error) => {
+          console.error('[AnytimeAsk] Context menu open failed:', error);
+        });
+        sendResponse({ ok: true });
+        return true;
+      }
+      return false;
     });
   }
 
@@ -369,6 +384,45 @@
       state.conversation = response.conversation;
       state.conversations = response.conversations || state.conversations;
       state.error = "";
+      await refreshHistory();
+      renderPanel();
+      focusComposer();
+    } catch (error) {
+      state.error = error.message || String(error);
+      renderPanel();
+    } finally {
+      state.isPreparing = false;
+      renderPanel();
+    }
+  }
+
+  async function openConversationWithoutSelection() {
+    if (!canUseOnCurrentUrl()) {
+      clearSelectionState();
+      return;
+    }
+
+    clearSelectionState();
+    ensurePanel();
+    state.activeSelectionText = '';
+    state.isPreparing = true;
+    state.error = '准备中...';
+    renderPanel();
+
+    try {
+      const context = getContextSnapshot('');
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.openOrCreateConversation,
+        context
+      });
+
+      if (!response?.ok) {
+        throw new Error(response?.error || '打开失败');
+      }
+
+      state.conversation = response.conversation;
+      state.conversations = response.conversations || state.conversations;
+      state.error = '';
       await refreshHistory();
       renderPanel();
       focusComposer();
@@ -664,6 +718,7 @@
         .aa-history {
           display: none;
           min-width: 0;
+          min-height: 0;
           grid-template-rows: auto auto 1fr;
           border-right: 1px solid #e5e7eb;
           background: #ffffff;

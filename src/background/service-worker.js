@@ -18,6 +18,42 @@ const STREAM_EVENTS = Object.freeze({
   error: "error"
 });
 
+// ── Context menu ────────────────────────────────────────────
+const CONTEXT_MENU_ID = "AA_OPEN_PANEL";
+
+function createContextMenu() {
+  // Remove first to avoid duplicates on service worker restart
+  chrome.contextMenus.remove(CONTEXT_MENU_ID, () => {
+    if (chrome.runtime.lastError) {
+      // Menu item didn't exist yet — that's fine
+    }
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_ID,
+      title: "进入 Anytime-Ask",
+      contexts: ["page", "selection"]
+    });
+  });
+}
+
+// Create context menu on install / startup
+chrome.runtime.onInstalled.addListener(createContextMenu);
+createContextMenu();
+
+// Handle context menu clicks
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id) {
+    return;
+  }
+
+  chrome.tabs.sendMessage(tab.id, {
+    type: MESSAGE_TYPES.openFromContextMenu
+  }).catch(() => {
+    // Content script may not be ready or URL not allowed — silent ignore
+  });
+});
+
+// ── Message routing ─────────────────────────────────────────
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender)
     .then((response) => sendResponse({ ok: true, ...response }))

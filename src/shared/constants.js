@@ -14,6 +14,7 @@ export const MESSAGE_TYPES = Object.freeze({
   deleteConversation: "AA_DELETE_CONVERSATION",
   openOptions: "AA_OPEN_OPTIONS",
   openHistory: "AA_OPEN_HISTORY",
+  openFromContextMenu: "AA_OPEN_FROM_CONTEXT_MENU",
   testProvider: "AA_TEST_PROVIDER"
 });
 

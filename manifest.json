@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Anytime Ask",
   "short_name": "AnytimeAsk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Select text on AI pages and ask follow-up questions without polluting the original conversation.",
   "minimum_chrome_version": "114",
   "action": {
@@ -16,6 +16,7 @@
   },
   "permissions": [
     "activeTab",
+    "contextMenus",
     "scripting",
     "storage"
   ],
