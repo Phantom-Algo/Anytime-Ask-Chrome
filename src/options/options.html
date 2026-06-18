@@ -70,6 +70,12 @@
           <small>每行一个前缀。只有当前页面 URL 以这些前缀之一开头时，划选追问功能才会启用。</small>
         </label>
 
+        <label class="field">
+          <span>MCP 配置 JSON</span>
+          <textarea class="code-input" id="mcpConfig" spellcheck="false" rows="12" placeholder="{&#10;  &quot;mcpServers&quot;: {&#10;    &quot;filesystem&quot;: {&#10;      &quot;type&quot;: &quot;stdio&quot;,&#10;      &quot;command&quot;: &quot;npx&quot;,&#10;      &quot;args&quot;: [&quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;/path/to/workspace&quot;]&#10;    },&#10;    &quot;remote-docs&quot;: {&#10;      &quot;type&quot;: &quot;sse&quot;,&#10;      &quot;url&quot;: &quot;http://localhost:3001/sse&quot;&#10;    }&#10;  }&#10;}"></textarea>
+          <small>支持 <code>mcpServers</code> 或 <code>servers</code> 对象；每个 server 的 <code>type</code> 可为 <code>stdio</code> 或 <code>sse</code>。保存后可在每个会话面板中选择启用一个或多个 MCP。</small>
+        </label>
+
         <div class="actions">
           <button class="primary" type="submit" id="saveButton">保存</button>
           <button type="button" id="testButton">测试配置</button>

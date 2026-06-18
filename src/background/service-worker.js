@@ -2,10 +2,12 @@ import { MESSAGE_TYPES } from "../shared/constants.js";
 import { callProvider, callProviderStream, testProvider } from "../shared/providers.js";
 import {
   deleteConversation,
+  getPublicMcpServers,
   getConversation,
   getConversations,
   getSettings,
   mergeSettings,
+  normalizeMcpServerIds,
   saveConversation
 } from "../shared/storage.js";
 
@@ -89,6 +91,13 @@ async function handleMessage(message) {
       return {};
     case MESSAGE_TYPES.clearConversationSelection:
       return clearConversationSelection(message.conversationId);
+    case MESSAGE_TYPES.listMcpServers:
+      return listMcpServers();
+    case MESSAGE_TYPES.updateConversationMcpServers:
+      return updateConversationMcpServers(
+        message.conversationId,
+        message.mcpServerIds || []
+      );
     case MESSAGE_TYPES.testProvider:
       return {
         reply: await testProvider(mergeSettings(message.settings))
@@ -169,6 +178,7 @@ async function createConversation(context, options = {}) {
     contextHash: context.contextHash || hashText(context.contextText || ""),
     contextInjectedHash: "",
     contextUpdatedAt: now,
+    mcpServerIds: [],
     provider,
     model: providerConfig?.model || "",
     createdAt: now,
@@ -416,6 +426,38 @@ async function clearConversationSelection(conversationId) {
 
   await saveConversation(updatedConversation);
   return { conversation: updatedConversation };
+}
+
+async function listMcpServers() {
+  const settings = await getSettings();
+  return {
+    mcpServers: getPublicMcpServers(settings)
+  };
+}
+
+async function updateConversationMcpServers(conversationId, mcpServerIds) {
+  if (!conversationId) {
+    throw new Error("缺少会话 ID。");
+  }
+
+  const conversation = await getConversation(conversationId);
+  if (!conversation) {
+    throw new Error("未找到对应会话，可能已被删除。");
+  }
+
+  const settings = await getSettings();
+  const nextIds = normalizeMcpServerIds(mcpServerIds, settings.mcpServers);
+  const updatedConversation = {
+    ...conversation,
+    mcpServerIds: nextIds,
+    updatedAt: new Date().toISOString()
+  };
+
+  await saveConversation(updatedConversation);
+  return {
+    conversation: updatedConversation,
+    mcpServers: getPublicMcpServers(settings)
+  };
 }
 
 function mergeContextSnapshot(conversation, context, options = {}) {

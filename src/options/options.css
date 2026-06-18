@@ -107,6 +107,12 @@ textarea {
   padding: 9px 10px;
 }
 
+.code-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 input:focus,
 select:focus,
 textarea:focus {

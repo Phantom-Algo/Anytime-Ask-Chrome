@@ -1,45 +1,69 @@
 import { PROVIDERS, REQUEST_TIMEOUT_MS } from "./constants.js";
+import { createMcpToolRuntime } from "./mcp-client.js";
+import { getConversationMcpServers } from "./storage.js";
+
+const MAX_TOOL_CALL_ROUNDS = 5;
 
 export async function callProvider(settings, conversation) {
   const provider = settings.provider;
   const config = settings[provider];
   validateConfig(provider, config);
+  const mcpServers = getConversationMcpServers(settings, conversation);
+  const mcpRuntime = await createMcpToolRuntime(mcpServers);
 
-  const systemPrompt = buildSystemPrompt(conversation);
+  const systemPrompt = buildSystemPrompt(conversation, {
+    mcpServers: mcpRuntime ? mcpServers : []
+  });
   const messages = normalizeConversationMessages(conversation.messages);
 
-  if (provider === PROVIDERS.anthropic) {
-    return callAnthropic(config, systemPrompt, messages);
-  }
+  try {
+    if (provider === PROVIDERS.anthropic) {
+      return await callAnthropic(config, systemPrompt, messages, {
+        mcpRuntime
+      });
+    }
 
-  return callOpenAICompatible(config, systemPrompt, messages, {
-    includeDeepSeekThinking: provider === PROVIDERS.deepseek
-  });
+    return await callOpenAICompatible(config, systemPrompt, messages, {
+      includeDeepSeekThinking: provider === PROVIDERS.deepseek,
+      mcpRuntime
+    });
+  } finally {
+    mcpRuntime?.close();
+  }
 }
 
 export async function callProviderStream(settings, conversation, options = {}) {
   const provider = settings.provider;
   const config = settings[provider];
   validateConfig(provider, config);
+  const mcpServers = getConversationMcpServers(settings, conversation);
+  const mcpRuntime = await createMcpToolRuntime(mcpServers);
 
   const systemPrompt = buildSystemPrompt(conversation, {
-    includeContext: options.includeContext
+    includeContext: options.includeContext,
+    mcpServers: mcpRuntime ? mcpServers : []
   });
   const messages = normalizeConversationMessages(conversation.messages);
   const onDelta = typeof options.onDelta === "function" ? options.onDelta : () => {};
 
-  if (provider === PROVIDERS.anthropic) {
-    return callAnthropicStream(config, systemPrompt, messages, {
+  try {
+    if (provider === PROVIDERS.anthropic) {
+      return await callAnthropicStream(config, systemPrompt, messages, {
+        mcpRuntime,
+        onDelta,
+        signal: options.signal
+      });
+    }
+
+    return await callOpenAICompatibleStream(config, systemPrompt, messages, {
+      includeDeepSeekThinking: provider === PROVIDERS.deepseek,
+      mcpRuntime,
       onDelta,
       signal: options.signal
     });
+  } finally {
+    mcpRuntime?.close();
   }
-
-  return callOpenAICompatibleStream(config, systemPrompt, messages, {
-    includeDeepSeekThinking: provider === PROVIDERS.deepseek,
-    onDelta,
-    signal: options.signal
-  });
 }
 
 export async function testProvider(settings) {
@@ -104,7 +128,55 @@ function buildSystemPrompt(conversation, options = {}) {
     );
   }
 
+  const mcpSummary = formatMcpServersForPrompt(options.mcpServers || []);
+  if (mcpSummary) {
+    base.push(
+      [
+        "本会话启用的 MCP 服务器与工具：",
+        mcpSummary,
+        "当问题需要外部数据、文件、检索或动作时，请优先使用可用的 MCP 工具；工具结果会由插件执行后回传给你。"
+      ].join("\n")
+    );
+  }
+
   return base.join("\n\n");
+}
+
+function formatMcpServersForPrompt(servers = []) {
+  return servers
+    .map((server) => {
+      const lines = [
+        `- ${server.name || server.id} (${server.id}, ${server.type})`
+      ];
+
+      if (server.description) {
+        lines.push(`  描述：${server.description}`);
+      }
+
+      if (server.type === "stdio") {
+        lines.push(
+          `  启动：${[server.command, ...(server.args || [])].filter(Boolean).join(" ")}`
+        );
+        if (server.cwd) {
+          lines.push(`  工作目录：${server.cwd}`);
+        }
+        const envKeys = Object.keys(server.env || {});
+        if (envKeys.length) {
+          lines.push(`  环境变量：${envKeys.join(", ")}（值已隐藏）`);
+        }
+      }
+
+      if (server.type === "sse") {
+        lines.push(`  SSE URL：${server.url}`);
+        const headerKeys = Object.keys(server.headers || {});
+        if (headerKeys.length) {
+          lines.push(`  Headers：${headerKeys.join(", ")}（值已隐藏）`);
+        }
+      }
+
+      return lines.join("\n");
+    })
+    .join("\n");
 }
 
 function normalizeConversationMessages(messages = []) {
@@ -132,61 +204,208 @@ function buildMessageContent(message) {
 // 非 stream 模式的调用
 async function callOpenAICompatible(config, systemPrompt, messages, options = {}) {
   const endpoint = buildEndpoint(config.baseUrl, "chat/completions");
-  const body = {
-    model: config.model.trim(),
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt
-      },
-      ...messages
-    ],
-    max_tokens: toPositiveInteger(config.maxTokens, 1200),
-    stream: false
-  };
-
-  const temperature = toOptionalNumber(config.temperature);
-  if (temperature !== null) {
-    body.temperature = temperature;
-  }
-
-  if (options.includeDeepSeekThinking && config.thinkingEnabled) {
-    body.thinking = { type: "enabled" };
-    body.reasoning_effort = config.reasoningEffort || "medium";
-  }
-
-  const data = await fetchJson(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey.trim()}`
+  const requestMessages = [
+    {
+      role: "system",
+      content: systemPrompt
     },
-    body: JSON.stringify(body)
-  });
+    ...messages
+  ];
 
-  const content = data?.choices?.[0]?.message?.content;
-  const text = normalizeTextContent(content);
-  if (!text) {
-    throw new Error("Provider 返回为空。");
+  for (let round = 0; round <= MAX_TOOL_CALL_ROUNDS; round += 1) {
+    const body = buildOpenAiBody(config, requestMessages, {
+      ...options,
+      stream: false
+    });
+
+    const data = await fetchJson(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey.trim()}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    const assistantMessage = data?.choices?.[0]?.message || {};
+    const toolCalls = normalizeOpenAiToolCalls(assistantMessage.tool_calls);
+    if (toolCalls.length && options.mcpRuntime && round < MAX_TOOL_CALL_ROUNDS) {
+      requestMessages.push({
+        role: "assistant",
+        content: normalizeTextContent(assistantMessage.content) || null,
+        tool_calls: toolCalls
+      });
+      requestMessages.push(
+        ...(await executeOpenAiToolCalls(options.mcpRuntime, toolCalls))
+      );
+      continue;
+    }
+
+    const text = normalizeTextContent(assistantMessage.content);
+    if (!text) {
+      throw new Error("Provider 返回为空。");
+    }
+
+    return text;
   }
 
-  return text;
+  throw new Error("MCP 工具调用轮次过多，已停止。");
 }
 
 // stream 模式的调用
 async function callOpenAICompatibleStream(config, systemPrompt, messages, options = {}) {
   const endpoint = buildEndpoint(config.baseUrl, "chat/completions");
+  const requestMessages = [
+    {
+      role: "system",
+      content: systemPrompt
+    },
+    ...messages
+  ];
+  let fullText = "";
+
+  for (let round = 0; round <= MAX_TOOL_CALL_ROUNDS; round += 1) {
+    const body = buildOpenAiBody(config, requestMessages, {
+      ...options,
+      stream: true
+    });
+
+    const response = await fetchStream(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey.trim()}`
+      },
+      body: JSON.stringify(body),
+      signal: options.signal
+    });
+
+    const streamed = await readOpenAiStreamResponse(response, (delta) => {
+      fullText += delta;
+      options.onDelta(delta, fullText);
+    });
+
+    if (streamed.toolCalls.length && options.mcpRuntime && round < MAX_TOOL_CALL_ROUNDS) {
+      requestMessages.push({
+        role: "assistant",
+        content: streamed.text || null,
+        tool_calls: streamed.toolCalls
+      });
+      requestMessages.push(
+        ...(await executeOpenAiToolCalls(options.mcpRuntime, streamed.toolCalls))
+      );
+      continue;
+    }
+
+    break;
+  }
+
+  if (!fullText.trim()) {
+    throw new Error("Provider 返回为空。");
+  }
+
+  return fullText.trim();
+}
+
+async function callAnthropic(config, systemPrompt, messages, options = {}) {
+  const endpoint = buildEndpoint(config.baseUrl, "messages");
+  const requestMessages = [...messages];
+
+  for (let round = 0; round <= MAX_TOOL_CALL_ROUNDS; round += 1) {
+    const body = buildAnthropicBody(config, systemPrompt, requestMessages, options);
+
+    const data = await fetchJson(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey.trim(),
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify(body)
+    });
+
+    const content = Array.isArray(data?.content) ? data.content : [];
+    const toolUses = content.filter((part) => part?.type === "tool_use");
+    if (toolUses.length && options.mcpRuntime && round < MAX_TOOL_CALL_ROUNDS) {
+      requestMessages.push({
+        role: "assistant",
+        content
+      });
+      requestMessages.push({
+        role: "user",
+        content: await executeAnthropicToolUses(options.mcpRuntime, toolUses)
+      });
+      continue;
+    }
+
+    const text = extractAnthropicText(content);
+    if (!text) {
+      throw new Error("Anthropic 返回为空。");
+    }
+
+    return text;
+  }
+
+  throw new Error("MCP 工具调用轮次过多，已停止。");
+}
+
+async function callAnthropicStream(config, systemPrompt, messages, options = {}) {
+  const endpoint = buildEndpoint(config.baseUrl, "messages");
+  const requestMessages = [...messages];
+  let fullText = "";
+
+  for (let round = 0; round <= MAX_TOOL_CALL_ROUNDS; round += 1) {
+    const body = buildAnthropicBody(config, systemPrompt, requestMessages, {
+      ...options,
+      stream: true
+    });
+
+    const response = await fetchStream(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey.trim(),
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify(body),
+      signal: options.signal
+    });
+
+    const streamed = await readAnthropicStreamResponse(response, (delta) => {
+      fullText += delta;
+      options.onDelta(delta, fullText);
+    });
+
+    if (streamed.toolUses.length && options.mcpRuntime && round < MAX_TOOL_CALL_ROUNDS) {
+      requestMessages.push({
+        role: "assistant",
+        content: streamed.content
+      });
+      requestMessages.push({
+        role: "user",
+        content: await executeAnthropicToolUses(options.mcpRuntime, streamed.toolUses)
+      });
+      continue;
+    }
+
+    break;
+  }
+
+  if (!fullText.trim()) {
+    throw new Error("Anthropic 返回为空。");
+  }
+
+  return fullText.trim();
+}
+
+function buildOpenAiBody(config, messages, options = {}) {
   const body = {
     model: config.model.trim(),
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt
-      },
-      ...messages
-    ],
+    messages,
     max_tokens: toPositiveInteger(config.maxTokens, 1200),
-    stream: true
+    stream: Boolean(options.stream)
   };
 
   const temperature = toOptionalNumber(config.temperature);
@@ -194,22 +413,41 @@ async function callOpenAICompatibleStream(config, systemPrompt, messages, option
     body.temperature = temperature;
   }
 
+  const tools = options.mcpRuntime?.getOpenAiTools() || [];
+  if (tools.length) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
+
   if (options.includeDeepSeekThinking && config.thinkingEnabled) {
     body.thinking = { type: "enabled" };
     body.reasoning_effort = config.reasoningEffort || "medium";
   }
 
-  const response = await fetchStream(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey.trim()}`
-    },
-    body: JSON.stringify(body),
-    signal: options.signal
-  });
+  return body;
+}
 
-  let fullText = "";
+function buildAnthropicBody(config, systemPrompt, messages, options = {}) {
+  const body = {
+    model: config.model.trim(),
+    system: systemPrompt,
+    messages,
+    max_tokens: toPositiveInteger(config.maxTokens, 1200),
+    stream: Boolean(options.stream)
+  };
+
+  const tools = options.mcpRuntime?.getAnthropicTools() || [];
+  if (tools.length) {
+    body.tools = tools;
+  }
+
+  return body;
+}
+
+async function readOpenAiStreamResponse(response, onDelta) {
+  let text = "";
+  const toolCallParts = [];
+
   await readSseStream(response, (event) => {
     if (event.data === "[DONE]") {
       return;
@@ -217,106 +455,186 @@ async function callOpenAICompatibleStream(config, systemPrompt, messages, option
 
     const chunk = parseMaybeJson(event.data);
     const delta = chunk?.choices?.[0]?.delta;
-    // const text = normalizeTextContent(delta?.content); 这一块是错误的！！这里会把 chunk 破坏掉其该有的结构
-    const text = String(delta?.content || "");
-    if (!text) {
-      return;
+    const content = String(delta?.content || "");
+    if (content) {
+      text += content;
+      onDelta(content);
     }
 
-    fullText += text;
-    options.onDelta(text, fullText);
+    if (Array.isArray(delta?.tool_calls)) {
+      for (const item of delta.tool_calls) {
+        const index = Number.isInteger(item.index) ? item.index : toolCallParts.length;
+        const current = toolCallParts[index] || {
+          id: "",
+          type: "function",
+          function: {
+            name: "",
+            arguments: ""
+          }
+        };
+        current.id = item.id || current.id;
+        current.type = item.type || current.type || "function";
+        current.function.name =
+          item.function?.name || current.function.name || "";
+        current.function.arguments += item.function?.arguments || "";
+        toolCallParts[index] = current;
+      }
+    }
   });
 
-  if (!fullText.trim()) {
-    throw new Error("Provider 返回为空。");
-  }
-
-  return fullText.trim();
+  return {
+    text,
+    toolCalls: normalizeOpenAiToolCalls(toolCallParts)
+  };
 }
 
-async function callAnthropic(config, systemPrompt, messages) {
-  const endpoint = buildEndpoint(config.baseUrl, "messages");
-  const body = {
-    model: config.model.trim(),
-    system: systemPrompt,
-    messages,
-    max_tokens: toPositiveInteger(config.maxTokens, 1200)
-  };
+async function readAnthropicStreamResponse(response, onDelta) {
+  const blocks = [];
 
-  const data = await fetchJson(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.apiKey.trim(),
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify(body)
-  });
-
-  const text = Array.isArray(data?.content)
-    ? data.content
-        .filter((part) => part?.type === "text")
-        .map((part) => part.text)
-        .join("\n")
-        .trim()
-    : "";
-
-  if (!text) {
-    throw new Error("Anthropic 返回为空。");
-  }
-
-  return text;
-}
-
-async function callAnthropicStream(config, systemPrompt, messages, options = {}) {
-  const endpoint = buildEndpoint(config.baseUrl, "messages");
-  const body = {
-    model: config.model.trim(),
-    system: systemPrompt,
-    messages,
-    max_tokens: toPositiveInteger(config.maxTokens, 1200),
-    stream: true
-  };
-
-  const response = await fetchStream(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.apiKey.trim(),
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify(body),
-    signal: options.signal
-  });
-
-  let fullText = "";
   await readSseStream(response, (event) => {
     const payload = parseMaybeJson(event.data);
     if (payload?.type === "error") {
       throw new Error(payload.error?.message || "Anthropic stream 返回错误。");
     }
 
-    const delta = payload?.delta;
-    if (payload?.type !== "content_block_delta" || delta?.type !== "text_delta") {
+    if (payload?.type === "content_block_start") {
+      const block = payload.content_block || {};
+      if (block.type === "tool_use") {
+        blocks[payload.index] = {
+          type: "tool_use",
+          id: block.id,
+          name: block.name,
+          inputPartial: ""
+        };
+      } else {
+        blocks[payload.index] = {
+          type: "text",
+          text: String(block.text || "")
+        };
+      }
       return;
     }
 
-    const text = String(delta.text || "");
-    if (!text) {
+    if (payload?.type !== "content_block_delta") {
       return;
     }
 
-    fullText += text;
-    options.onDelta(text, fullText);
+    const block = blocks[payload.index];
+    const delta = payload.delta;
+    if (!block || !delta) {
+      return;
+    }
+
+    if (delta.type === "text_delta") {
+      const text = String(delta.text || "");
+      if (text) {
+        block.text += text;
+        onDelta(text);
+      }
+      return;
+    }
+
+    if (delta.type === "input_json_delta") {
+      block.inputPartial = `${block.inputPartial || ""}${delta.partial_json || ""}`;
+    }
   });
 
-  if (!fullText.trim()) {
-    throw new Error("Anthropic 返回为空。");
+  const content = blocks
+    .filter(Boolean)
+    .map((block) => {
+      if (block.type === "tool_use") {
+        return {
+          type: "tool_use",
+          id: block.id,
+          name: block.name,
+          input: parseToolArguments(block.inputPartial)
+        };
+      }
+      return {
+        type: "text",
+        text: block.text || ""
+      };
+    })
+    .filter((block) => block.type !== "text" || block.text);
+
+  return {
+    content,
+    toolUses: content.filter((block) => block.type === "tool_use")
+  };
+}
+
+function normalizeOpenAiToolCalls(toolCalls = []) {
+  return Array.isArray(toolCalls)
+    ? toolCalls
+        .filter((toolCall) => toolCall?.function?.name)
+        .map((toolCall, index) => ({
+          id: toolCall.id || `tool-call-${index + 1}`,
+          type: toolCall.type || "function",
+          function: {
+            name: toolCall.function.name,
+            arguments: String(toolCall.function.arguments || "{}")
+          }
+        }))
+    : [];
+}
+
+async function executeOpenAiToolCalls(mcpRuntime, toolCalls) {
+  const messages = [];
+  for (const toolCall of toolCalls) {
+    const content = await mcpRuntime.callTool(
+      toolCall.function.name,
+      parseToolArguments(toolCall.function.arguments)
+    );
+    messages.push({
+      role: "tool",
+      tool_call_id: toolCall.id,
+      name: toolCall.function.name,
+      content: content || ""
+    });
+  }
+  return messages;
+}
+
+async function executeAnthropicToolUses(mcpRuntime, toolUses) {
+  const results = [];
+  for (const toolUse of toolUses) {
+    const content = await mcpRuntime.callTool(toolUse.name, toolUse.input || {});
+    results.push({
+      type: "tool_result",
+      tool_use_id: toolUse.id,
+      content: content || ""
+    });
+  }
+  return results;
+}
+
+function parseToolArguments(value) {
+  if (!value) {
+    return {};
   }
 
-  return fullText.trim();
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractAnthropicText(content = []) {
+  return Array.isArray(content)
+    ? content
+        .filter((part) => part?.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim()
+    : "";
 }
 
 async function fetchJson(url, init) {

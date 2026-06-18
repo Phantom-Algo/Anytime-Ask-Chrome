@@ -16,6 +16,8 @@ export const MESSAGE_TYPES = Object.freeze({
   openHistory: "AA_OPEN_HISTORY",
   openFromContextMenu: "AA_OPEN_FROM_CONTEXT_MENU",
   clearConversationSelection: "AA_CLEAR_CONVERSATION_SELECTION",
+  listMcpServers: "AA_LIST_MCP_SERVERS",
+  updateConversationMcpServers: "AA_UPDATE_CONVERSATION_MCP_SERVERS",
   testProvider: "AA_TEST_PROVIDER"
 });
 
@@ -31,12 +33,18 @@ export const PROVIDER_LABELS = Object.freeze({
   deepseek: "DeepSeek V4"
 });
 
+export const MCP_TRANSPORTS = Object.freeze({
+  stdio: "stdio",
+  sse: "sse"
+});
+
 export const DEFAULT_SETTINGS = Object.freeze({
   provider: PROVIDERS.deepseek,
   allowedUrlPrefixes: [
     "https://chatgpt.com/",
     "https://chat.deepseek.com/"
   ],
+  mcpServers: [],
   openai: {
     apiKey: "",
     baseUrl: "https://api.openai.com/v1",

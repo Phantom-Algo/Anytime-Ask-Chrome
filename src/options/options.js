@@ -4,6 +4,8 @@ import {
   mergeSettings,
   normalizeAllowedUrlPrefix,
   normalizeAllowedUrlPrefixes,
+  parseMcpServersJson,
+  stringifyMcpServers,
   saveSettings
 } from "../shared/storage.js";
 
@@ -18,6 +20,7 @@ const deepseekFields = document.querySelector("#deepseekFields");
 const thinkingEnabledInput = document.querySelector("#thinkingEnabled");
 const reasoningEffortSelect = document.querySelector("#reasoningEffort");
 const allowedUrlPrefixesInput = document.querySelector("#allowedUrlPrefixes");
+const mcpConfigInput = document.querySelector("#mcpConfig");
 const settingsForm = document.querySelector("#settingsForm");
 const saveButton = document.querySelector("#saveButton");
 const testButton = document.querySelector("#testButton");
@@ -81,6 +84,7 @@ function renderForm() {
   }
 
   allowedUrlPrefixesInput.value = (draft.allowedUrlPrefixes || []).join("\n");
+  mcpConfigInput.value = stringifyMcpServers(draft.mcpServers || []);
 }
 
 function syncDraftFromForm(providerName, options = {}) {
@@ -88,6 +92,7 @@ function syncDraftFromForm(providerName, options = {}) {
     allowedUrlPrefixesInput.value,
     options
   );
+  const mcpServers = parseMcpConfigFromForm(options);
   const currentConfig = {
     ...draft[providerName],
     apiKey: apiKeyInput.value.trim(),
@@ -109,6 +114,7 @@ function syncDraftFromForm(providerName, options = {}) {
   draft = mergeSettings({
     ...draft,
     allowedUrlPrefixes,
+    mcpServers,
     [providerName]: currentConfig
   });
 }
@@ -120,6 +126,7 @@ async function saveCurrentSettings() {
   try {
     syncDraftFromForm(activeProvider, { strict: true });
     await ensureHostPermission(draft[draft.provider].baseUrl);
+    await ensureMcpHostPermissions(draft.mcpServers);
     draft = await saveSettings(draft);
     activeProvider = draft.provider;
     renderForm();
@@ -172,6 +179,31 @@ async function ensureHostPermission(baseUrl) {
   return true;
 }
 
+async function ensureMcpHostPermissions(mcpServers = []) {
+  const patterns = [
+    ...new Set(
+      (mcpServers || [])
+        .filter((server) => server.type === "sse")
+        .map((server) => toPermissionPattern(server.url))
+        .filter(Boolean)
+    )
+  ];
+
+  if (!patterns.length) {
+    return true;
+  }
+
+  const granted = await chrome.permissions.request({
+    origins: patterns
+  });
+
+  if (!granted) {
+    throw new Error(`未授予 MCP SSE 访问权限：${patterns.join(", ")}`);
+  }
+
+  return true;
+}
+
 function toPermissionPattern(baseUrl) {
   let url;
   try {
@@ -212,6 +244,18 @@ function parseAllowedUrlPrefixes(value, options = {}) {
   }
 
   return normalizeAllowedUrlPrefixes(rawPrefixes);
+}
+
+function parseMcpConfigFromForm(options = {}) {
+  if (options.strict) {
+    return parseMcpServersJson(mcpConfigInput.value);
+  }
+
+  try {
+    return parseMcpServersJson(mcpConfigInput.value);
+  } catch {
+    return draft.mcpServers || [];
+  }
 }
 
 function sendRuntimeMessage(message) {

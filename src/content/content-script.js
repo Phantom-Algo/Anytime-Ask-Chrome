@@ -13,7 +13,10 @@
     renameConversation: "AA_RENAME_CONVERSATION",
     deleteConversation: "AA_DELETE_CONVERSATION",
     openOptions: "AA_OPEN_OPTIONS",
-    openFromContextMenu: "AA_OPEN_FROM_CONTEXT_MENU"
+    openFromContextMenu: "AA_OPEN_FROM_CONTEXT_MENU",
+    clearConversationSelection: "AA_CLEAR_CONVERSATION_SELECTION",
+    listMcpServers: "AA_LIST_MCP_SERVERS",
+    updateConversationMcpServers: "AA_UPDATE_CONVERSATION_MCP_SERVERS"
   };
 
   const STREAM_PORT_NAME = "AA_STREAM_MESSAGE_PORT";
@@ -61,7 +64,8 @@
     suppressedSelectionSignature: "",
     urlAccessLoaded: false,
     isUrlAllowed: false,
-    allowedUrlPrefixes: DEFAULT_ALLOWED_URL_PREFIXES
+    allowedUrlPrefixes: DEFAULT_ALLOWED_URL_PREFIXES,
+    mcpServers: []
   };
 
   document.addEventListener("mouseup", handleSelectionCheckEvent, true);
@@ -116,6 +120,15 @@
         refreshUrlAccess().catch(() => {
           clearSelectionState();
         });
+        refreshMcpServers()
+          .then(() => {
+            if (state.shadow) {
+              renderPanel();
+            }
+          })
+          .catch(() => {
+            state.mcpServers = [];
+          });
       }
     });
   }
@@ -385,6 +398,7 @@
       state.conversations = response.conversations || state.conversations;
       state.error = "";
       await refreshHistory();
+      await refreshMcpServers();
       renderPanel();
       focusComposer();
     } catch (error) {
@@ -424,6 +438,7 @@
       state.conversations = response.conversations || state.conversations;
       state.error = '';
       await refreshHistory();
+      await refreshMcpServers();
       renderPanel();
       focusComposer();
     } catch (error) {
@@ -467,6 +482,7 @@
       state.conversations = response.conversations || state.conversations;
       state.error = "";
       await refreshHistory();
+      await refreshMcpServers();
       renderPanel();
       focusComposer();
     } catch (error) {
@@ -852,7 +868,7 @@
         .aa-panel {
           min-width: 0;
           display: grid;
-          grid-template-rows: auto auto auto 1fr auto;
+          grid-template-rows: auto auto auto auto 1fr auto;
           overflow: hidden;
           background: #fbfcfd;
           color: #111827;
@@ -1001,6 +1017,86 @@
           line-height: 1.55;
           white-space: pre-wrap;
           word-break: break-word;
+        }
+
+        .aa-mcp {
+          display: none;
+          gap: 8px;
+          padding: 10px 14px;
+          border-bottom: 1px solid #e5e7eb;
+          background: #ffffff;
+        }
+
+        .aa-mcp[data-visible="true"] {
+          display: grid;
+        }
+
+        .aa-mcp-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          color: #334155;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 16px;
+        }
+
+        .aa-mcp-header small {
+          overflow: hidden;
+          color: #64748b;
+          font-size: 11px;
+          font-weight: 600;
+          line-height: 15px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .aa-mcp-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+
+        .aa-mcp-option {
+          display: inline-flex;
+          align-items: center;
+          max-width: 100%;
+          gap: 6px;
+          min-height: 28px;
+          border: 1px solid #dbe3ef;
+          border-radius: 7px;
+          background: #f8fafc;
+          color: #334155;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 16px;
+          padding: 5px 8px;
+        }
+
+        .aa-mcp-option input {
+          width: 14px;
+          height: 14px;
+          margin: 0;
+          flex: 0 0 auto;
+        }
+
+        .aa-mcp-option span {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .aa-mcp-option[data-selected="true"] {
+          border-color: #0f766e;
+          background: #f0fdfa;
+          color: #0f766e;
+        }
+
+        .aa-mcp-option[data-disabled="true"] {
+          cursor: not-allowed;
+          opacity: 0.62;
         }
 
         .aa-status {
@@ -1548,6 +1644,13 @@
             </div>
             <div class="aa-quote-text" data-field="quote"></div>
           </section>
+          <section class="aa-mcp" data-field="mcp">
+            <div class="aa-mcp-header">
+              <span>MCP</span>
+              <small data-field="mcp-summary">未启用</small>
+            </div>
+            <div class="aa-mcp-list" data-field="mcp-list"></div>
+          </section>
           <div class="aa-status" data-field="status"></div>
           <main class="aa-messages" data-field="messages"></main>
           <footer class="aa-composer">
@@ -1778,7 +1881,7 @@
 
     return Boolean(
       target.closest(
-        "button,textarea,input,select,a,[data-action],.aa-history,.aa-messages,.aa-quote"
+        "button,textarea,input,select,a,[data-action],.aa-history,.aa-messages,.aa-quote,.aa-mcp"
       )
     );
   }
@@ -1797,6 +1900,15 @@
     });
     if (response?.ok) {
       state.conversations = response.conversations || [];
+    }
+  }
+
+  async function refreshMcpServers() {
+    const response = await sendRuntimeMessage({
+      type: MESSAGE_TYPES.listMcpServers
+    });
+    if (response?.ok) {
+      state.mcpServers = response.mcpServers || [];
     }
   }
 
@@ -1820,8 +1932,57 @@
 
     renderMessages();
     renderHistory();
+    renderMcpSelector();
     setStatus(state.error);
     setComposerDisabled(state.isPreparing || state.isStreaming);
+  }
+
+  function renderMcpSelector() {
+    if (!state.shadow) {
+      return;
+    }
+
+    const section = state.shadow.querySelector('[data-field="mcp"]');
+    const list = state.shadow.querySelector('[data-field="mcp-list"]');
+    const summary = state.shadow.querySelector('[data-field="mcp-summary"]');
+    const servers = state.mcpServers || [];
+    const selectedIds = new Set(state.conversation?.mcpServerIds || []);
+
+    list.textContent = "";
+    section.dataset.visible = servers.length ? "true" : "false";
+    if (!servers.length) {
+      summary.textContent = "未配置";
+      return;
+    }
+
+    const selectedCount = servers.filter((server) => selectedIds.has(server.id)).length;
+    summary.textContent = state.conversation
+      ? `${selectedCount}/${servers.length} 已启用`
+      : "先创建会话";
+
+    for (const server of servers) {
+      const checked = selectedIds.has(server.id);
+      const disabled = !state.conversation || state.isPreparing || state.isStreaming;
+      const label = document.createElement("label");
+      label.className = "aa-mcp-option";
+      label.dataset.selected = checked ? "true" : "false";
+      label.dataset.disabled = disabled ? "true" : "false";
+      label.title = [server.name, server.type, server.description].filter(Boolean).join(" · ");
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = checked;
+      checkbox.disabled = disabled;
+      checkbox.addEventListener("change", () => {
+        updateConversationMcpSelection(server.id, checkbox.checked);
+      });
+
+      const name = document.createElement("span");
+      name.textContent = server.name || server.id;
+
+      label.append(checkbox, name);
+      list.appendChild(label);
+    }
   }
 
   function renderHistory() {
@@ -1963,6 +2124,47 @@
     state.activeSelectionText = response.conversation.selectedText || "";
     renderPanel();
     focusComposer();
+  }
+
+  async function updateConversationMcpSelection(serverId, enabled) {
+    if (!state.conversation?.id) {
+      return;
+    }
+
+    const availableIds = new Set((state.mcpServers || []).map((server) => server.id));
+    const selectedIds = new Set(state.conversation.mcpServerIds || []);
+    if (enabled) {
+      selectedIds.add(serverId);
+    } else {
+      selectedIds.delete(serverId);
+    }
+
+    const nextIds = [...selectedIds].filter((id) => availableIds.has(id));
+    const previousConversation = state.conversation;
+    state.conversation = {
+      ...state.conversation,
+      mcpServerIds: nextIds
+    };
+    renderPanel();
+
+    const response = await sendRuntimeMessage({
+      type: MESSAGE_TYPES.updateConversationMcpServers,
+      conversationId: state.conversation.id,
+      mcpServerIds: nextIds
+    });
+
+    if (!response?.ok) {
+      state.conversation = previousConversation;
+      state.error = response?.error || "MCP 选择保存失败";
+      renderPanel();
+      return;
+    }
+
+    state.conversation = response.conversation;
+    state.mcpServers = response.mcpServers || state.mcpServers;
+    state.error = "";
+    await refreshHistory();
+    renderPanel();
   }
 
   async function renameCurrentConversation() {
@@ -2149,6 +2351,7 @@
       state.conversations = response.conversations || state.conversations;
       state.error = "";
       await refreshHistory();
+      await refreshMcpServers();
     } finally {
       state.isPreparing = false;
       renderPanel();
@@ -2323,6 +2526,9 @@
     if (clearQuoteBtn) {
       clearQuoteBtn.disabled = disabled;
     }
+    state.shadow.querySelectorAll('[data-field="mcp-list"] input').forEach((input) => {
+      input.disabled = disabled || !state.conversation;
+    });
   }
 
   function focusComposer() {

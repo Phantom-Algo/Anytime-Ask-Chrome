@@ -1,6 +1,6 @@
 # Anytime Ask
 
-当前版本：1.3.0（最近一次更新：2026.06.14）
+当前版本：1.4.0（最近一次更新：2026.06.18）
 
 > 在任意 AI 对话页面上划选文字，即可在侧边栏中追问——不污染原始对话。
 
@@ -27,6 +27,7 @@
 - **BYOK** - 你可以使用自己的 API Key，不受限于任何特定平台。
 - **实时流式输出** — Token 级实时渲染，体验与原对话一致。
 - **智能上下文管理** — 自动提取页面可见文字作为系统提示词；上下文缓存后仅在页面变化时重新发送，节省 Token。
+- **MCP 工具调用** — 可在设置页用 JSON 配置 `stdio` / `sse` MCP server，并在每个会话中选择启用一个或多个 MCP。模型可发现并调用 MCP tools，工具结果会回灌给模型继续回答。
 - **自有密钥** — 无后端、无代理。API Key 仅存储在浏览器本地。
 
 ### 富文本渲染
@@ -81,7 +82,8 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 3. 在「厂商」下拉框中选择你的 AI 服务商
 4. 填入 API Key，必要时修改模型名称 / Base URL
 5. （可选）编辑 URL 前缀白名单，控制插件在哪些页面生效
-6. 点击 **保存** → 再点击 **测试配置** 验证连通性
+6. （可选）在 **MCP 配置 JSON** 中填写 MCP server 配置
+7. 点击 **保存** → 再点击 **测试配置** 验证连通性
 
 </details>
 
@@ -105,6 +107,7 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 |---|---|
 | **头部** | 显示当前会话标题，可拖拽移动面板位置 |
 | **引用栏** | 显示你划选的文字，作为本次对话的上下文；点击右侧 ⊖ 按钮可清除划选内容 |
+| **MCP 选择栏** | 当设置中配置了 MCP server 时，可为当前会话勾选一个或多个 MCP |
 | **消息区** | 你的问题（右侧青色气泡）与 AI 回复（左侧白底气泡，完整 Markdown + LaTeX 渲染） |
 | **输入区** | 输入你的问题，`Ctrl+Enter` / `Cmd+Enter` 发送，直接按 `Enter` 换行 |
 
@@ -153,6 +156,58 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 
 ---
 
+## MCP 配置
+
+在设置页的 **MCP 配置 JSON** 中可以配置全局 MCP server。当前支持 `mcpServers` 或 `servers` 两种顶层写法，每个 server 支持：
+
+- `type: "stdio"`：需要 `command`，可选 `args` / `cwd` / `env`
+- `type: "sse"`：需要 `url`，可选 `headers`
+- `name` / `description` / `enabled` 可选
+
+示例：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "name": "Filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+    },
+    "remote-docs": {
+      "type": "sse",
+      "name": "Remote Docs",
+      "url": "http://localhost:3001/sse",
+      "headers": {
+        "Authorization": "Bearer <token>"
+      }
+    }
+  }
+}
+```
+
+保存后，打开任意 Anytime Ask 会话，面板会显示 MCP 选择栏。每个会话可独立勾选一个或多个 MCP，选择结果保存在该会话的 `mcpServerIds` 中，并随历史一起存储在 `chrome.storage.local`。发送消息时，插件会先读取所选 MCP server 的 `tools/list`，把 tools schema 传给当前模型；当模型返回 tool call 时，插件会执行 `tools/call` 并把结果回灌给模型，直到得到最终回答。
+
+### SSE / Streamable HTTP
+
+`type: "sse"` 支持 MCP Streamable HTTP，并兼容旧版 HTTP+SSE endpoint。保存配置时 Chrome 会请求对应 host permission；本地 HTTP 仅允许 `localhost` / `127.0.0.1`。
+
+### stdio Native Host
+
+Chrome MV3 扩展不能直接启动本机进程，因此 `type: "stdio"` 通过仓库内置的 Native Messaging host 落地。
+
+1. 在 `chrome://extensions` 中查看 Anytime Ask 的扩展 ID
+2. 在仓库根目录执行：
+
+```bash
+node scripts/install-native-host.mjs --extension-id <你的扩展 ID>
+```
+
+脚本会注册 `com.anytime_ask.mcp_bridge`，并指向 `native-host/anytime-ask-mcp-bridge.js`。之后重新加载扩展即可使用 `stdio` MCP。该 bridge 会按 MCP stdio 规范拉起你配置的 `command` / `args`，通过换行分隔 JSON-RPC 消息，并把 `stderr` 转发到 bridge 日志。
+
+---
+
 ## Markdown & LaTeX 支持
 
 ### Markdown
@@ -187,7 +242,9 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 
 - **零遥测** — 无埋点、无分析、无外部服务器。所有逻辑在浏览器本地运行。
 - **API Key** 仅存储在 `chrome.storage.local` 中，除向您配置的 AI 厂商发起请求外绝不出站。
-- **对话历史** 仅存储在本地 `chrome.storage.local`。
+- **MCP 配置与对话历史** 仅存储在本地 `chrome.storage.local`。
+- **MCP 会话选择** 会随对应会话保存；发送消息时会把启用 MCP 的 tool schema 发送给当前 AI provider，并在模型请求时执行 MCP tool。
+- **MCP secrets**（如 `env` / `headers` 的值）不会注入 prompt，但会用于连接对应 MCP server 或 Native Messaging bridge。
 - **内容脚本** 仅在您配置的 URL 白名单页面生效。
 - **Markdown 渲染** 关闭原始 HTML（`html: false`），防止 XSS 攻击。
 - **所有链接** 自动添加 `rel="noreferrer noopener"`，新标签页打开。
@@ -214,7 +271,7 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 │  │  • 消息路由                                       │   │
 │  │  • 厂商 API 调用 (OpenAI / Anthropic / DS)       │   │
 │  │  • SSE 流式中转 (chrome.runtime.connect)         │   │
-│  │  • 会话 CRUD + 存储                               │   │
+│  │  • 会话 CRUD + MCP tool 调用                      │   │
 │  └──────────────────────────────────────────────────┘   │
 │                      │ chrome.runtime.connect (流式)     │
 │                      ▼                                   │
@@ -223,6 +280,7 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 │  │  • 划选检测 + 浮动按钮                            │   │
 │  │  • Shadow DOM 面板注入                            │   │
 │  │  • 页面上下文提取（结构化 + 通用）                  │   │
+│  │  • 会话级 MCP 多选                                │   │
 │  │  • Markdown + LaTeX 渲染                          │   │
 │  └──────────────────────────────────────────────────┘   │
 │                                                          │
@@ -231,6 +289,12 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 │  │  • constants.js    • providers.js                 │   │
 │  │  • storage.js      • markdown-render.js           │   │
 │  │  • vendor/ (markdown-it, highlight.js, KaTeX)     │   │
+│  └──────────────────────────────────────────────────┘   │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │           Native Messaging Host (可选)            │   │
+│  │  • stdio MCP 子进程启动                           │   │
+│  │  • JSON-RPC newline framing                       │   │
 │  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -249,6 +313,10 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 
 ### 目录结构
 ```
+native-host/
+└── anytime-ask-mcp-bridge.js # stdio MCP Native Messaging bridge
+scripts/
+└── install-native-host.mjs   # 注册 Native Messaging host
 src/
 ├── background/
 │   └── service-worker.js    # 后台脚本（消息路由、API 调用）
@@ -270,6 +338,7 @@ src/
 └── shared/
     ├── constants.js          # 消息类型、厂商 ID、默认值
     ├── providers.js          # 厂商 API 逻辑
+    ├── mcp-client.js         # MCP 传输与 tool 调用逻辑
     ├── storage.js            # chrome.storage.local 抽象层
     ├── markdown-render.js    # markdown-it + KaTeX + highlight.js
     └── vendor/               # 第三方库
