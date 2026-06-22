@@ -64,6 +64,22 @@
           </label>
         </section>
 
+        <section class="subpanel">
+          <div class="section-header">
+            <h2>个人指令</h2>
+            <label class="check compact">
+              <input id="personalInstructionEnabled" type="checkbox">
+              <span>启用</span>
+            </label>
+          </div>
+
+          <label class="field">
+            <span>指令内容</span>
+            <textarea id="personalInstruction" spellcheck="false" rows="6" maxlength="1000" placeholder="例如：用中文回答；先给结论，再解释推理过程。"></textarea>
+            <small><span id="personalInstructionCount">0/1000</span>。关闭启用后，内容会保留但不会注入系统提示词。</small>
+          </label>
+        </section>
+
         <label class="field">
           <span>允许使用的 URL 前缀</span>
           <textarea id="allowedUrlPrefixes" spellcheck="false" rows="5" placeholder="https://chatgpt.com/&#10;https://chat.deepseek.com/"></textarea>
@@ -86,7 +102,7 @@
 
       <section class="notes">
         <h2>本地存储</h2>
-        <p>API Key、URL 前缀白名单和追问历史保存在当前浏览器的扩展本地存储中。白名单之外的页面不会启用划选追问；发送追问时，划选内容、页面上下文和插件会话历史会发送给当前 provider。</p>
+        <p>API Key、个人指令、URL 前缀白名单和追问历史保存在当前浏览器的扩展本地存储中。白名单之外的页面不会启用划选追问；发送追问时，划选内容、页面上下文和插件会话历史会发送给当前 provider。</p>
       </section>
     </main>
 

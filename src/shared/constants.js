@@ -44,6 +44,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
     "https://chatgpt.com/",
     "https://chat.deepseek.com/"
   ],
+  personalInstruction: {
+    enabled: false,
+    content: ""
+  },
   mcpServers: [],
   openai: {
     apiKey: "",
@@ -72,4 +76,5 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export const MAX_HISTORY_ITEMS = 100;
 export const MAX_CONTEXT_CHARS = 12000;
 export const MAX_SELECTED_CHARS = 4000;
+export const MAX_PERSONAL_INSTRUCTION_CHARS = 1000;
 export const REQUEST_TIMEOUT_MS = 60000;

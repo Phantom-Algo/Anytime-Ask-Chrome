@@ -171,7 +171,7 @@ class StreamableHttpMcpClient {
       capabilities: {},
       clientInfo: {
         name: "Anytime Ask",
-        version: "1.4.0"
+        version: "1.5.0"
       }
     });
     this.protocolVersion = result?.protocolVersion || MCP_PROTOCOL_VERSION;
@@ -269,7 +269,7 @@ class LegacySseMcpClient {
       capabilities: {},
       clientInfo: {
         name: "Anytime Ask",
-        version: "1.4.0"
+        version: "1.5.0"
       }
     });
     await this.sendNotification("notifications/initialized", {});
@@ -441,7 +441,7 @@ class NativeStdioMcpClient {
       capabilities: {},
       clientInfo: {
         name: "Anytime Ask",
-        version: "1.4.0"
+        version: "1.5.0"
       }
     });
     await this.sendNotification("notifications/initialized", {});

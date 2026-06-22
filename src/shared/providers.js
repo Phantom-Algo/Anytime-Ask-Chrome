@@ -1,4 +1,8 @@
-import { PROVIDERS, REQUEST_TIMEOUT_MS } from "./constants.js";
+import {
+  MAX_PERSONAL_INSTRUCTION_CHARS,
+  PROVIDERS,
+  REQUEST_TIMEOUT_MS
+} from "./constants.js";
 import { createMcpToolRuntime } from "./mcp-client.js";
 import { getConversationMcpServers } from "./storage.js";
 
@@ -12,7 +16,8 @@ export async function callProvider(settings, conversation) {
   const mcpRuntime = await createMcpToolRuntime(mcpServers);
 
   const systemPrompt = buildSystemPrompt(conversation, {
-    mcpServers: mcpRuntime ? mcpServers : []
+    mcpServers: mcpRuntime ? mcpServers : [],
+    personalInstruction: settings.personalInstruction
   });
   const messages = normalizeConversationMessages(conversation.messages);
 
@@ -41,7 +46,8 @@ export async function callProviderStream(settings, conversation, options = {}) {
 
   const systemPrompt = buildSystemPrompt(conversation, {
     includeContext: options.includeContext,
-    mcpServers: mcpRuntime ? mcpServers : []
+    mcpServers: mcpRuntime ? mcpServers : [],
+    personalInstruction: settings.personalInstruction
   });
   const messages = normalizeConversationMessages(conversation.messages);
   const onDelta = typeof options.onDelta === "function" ? options.onDelta : () => {};
@@ -113,12 +119,22 @@ function buildSystemPrompt(conversation, options = {}) {
     "你是 Anytime Ask，一个网页旁路解释助手。",
     "用户正在查看一个网页端 AI 会话或普通网页，并划选了其中一段内容进行独立追问。你的回答不会写回原网页对话，所以要围绕划选内容清晰解释，不要假设用户已经理解中间步骤。",
     "请优先结合当前网页上下文回答。若上下文不足，请直接说明缺失的信息，并基于已知内容给出最可靠的解释。",
-    "对数学、代码、概念解释类问题，请拆步骤说明，指出隐含前提，并在有帮助时给一个更简单的例子。",
+    "对数学、代码、概念解释类问题，请拆步骤说明，指出隐含前提，并在有帮助时给一个更简单的例子。"
+  ];
+
+  const personalInstruction = formatPersonalInstructionForPrompt(
+    options.personalInstruction
+  );
+  if (personalInstruction) {
+    base.push(`用户个人指令：\n${personalInstruction}`);
+  }
+
+  base.push(
     `来源页面标题：${conversation.pageTitle || conversation.title || "未知"}`,
     `来源页面 URL：${conversation.url || "未知"}`,
     `上下文来源：${conversation.contextSource || "generic"}`,
     `会话初始划选内容：\n${selectedText || "未提供"}`
-  ];
+  );
 
   if (includeContext) {
     base.push(`当前页面上下文摘录：\n${contextText || "未提取到可用上下文"}`);
@@ -140,6 +156,21 @@ function buildSystemPrompt(conversation, options = {}) {
   }
 
   return base.join("\n\n");
+}
+
+function formatPersonalInstructionForPrompt(personalInstruction) {
+  if (personalInstruction?.enabled !== true) {
+    return "";
+  }
+
+  return clipPlainText(
+    personalInstruction.content || "",
+    MAX_PERSONAL_INSTRUCTION_CHARS
+  );
+}
+
+function clipPlainText(value, maxLength) {
+  return Array.from(String(value || "").trim()).slice(0, maxLength).join("");
 }
 
 function formatMcpServersForPrompt(servers = []) {

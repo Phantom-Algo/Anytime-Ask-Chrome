@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Anytime Ask",
   "short_name": "AnytimeAsk",
-  "version": "1.4.0",
-  "description": "Select text on AI pages and ask follow-up questions without polluting the original conversation.",
+  "version": "1.5.0",
+  "description": "Select text on AI pages and ask follow-up questions with BYOK providers and optional personal instructions.",
   "minimum_chrome_version": "114",
   "action": {
     "default_popup": "src/popup/popup.html",

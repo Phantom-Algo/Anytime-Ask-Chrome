@@ -1,6 +1,7 @@
 import {
   DEFAULT_SETTINGS,
   MAX_HISTORY_ITEMS,
+  MAX_PERSONAL_INSTRUCTION_CHARS,
   MCP_TRANSPORTS,
   STORAGE_KEYS
 } from "./constants.js";
@@ -12,6 +13,9 @@ export function mergeSettings(settings = {}) {
       Array.isArray(settings.allowedUrlPrefixes)
         ? settings.allowedUrlPrefixes
         : DEFAULT_SETTINGS.allowedUrlPrefixes
+    ),
+    personalInstruction: normalizePersonalInstruction(
+      settings.personalInstruction || DEFAULT_SETTINGS.personalInstruction
     ),
     mcpServers: normalizeMcpServers(
       settings.mcpServers || settings.mcp || DEFAULT_SETTINGS.mcpServers
@@ -132,6 +136,17 @@ export function isUrlAllowedByPrefixes(url, prefixes = []) {
   );
 }
 
+export function normalizePersonalInstruction(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+
+  return {
+    enabled: source.enabled === true,
+    content: clipText(source.content, MAX_PERSONAL_INSTRUCTION_CHARS)
+  };
+}
+
 export function parseMcpServersJson(value) {
   const text = String(value || "").trim();
   if (!text) {
@@ -146,6 +161,10 @@ export function parseMcpServersJson(value) {
   }
 
   return normalizeMcpServers(parsed, { strict: true });
+}
+
+function clipText(value, maxLength) {
+  return Array.from(String(value || "").trim()).slice(0, maxLength).join("");
 }
 
 export function stringifyMcpServers(servers = []) {

@@ -1,9 +1,15 @@
-import { MESSAGE_TYPES, PROVIDER_LABELS, PROVIDERS } from "../shared/constants.js";
+import {
+  MAX_PERSONAL_INSTRUCTION_CHARS,
+  MESSAGE_TYPES,
+  PROVIDER_LABELS,
+  PROVIDERS
+} from "../shared/constants.js";
 import {
   getSettings,
   mergeSettings,
   normalizeAllowedUrlPrefix,
   normalizeAllowedUrlPrefixes,
+  normalizePersonalInstruction,
   parseMcpServersJson,
   stringifyMcpServers,
   saveSettings
@@ -19,6 +25,9 @@ const temperatureRow = document.querySelector("#temperatureRow");
 const deepseekFields = document.querySelector("#deepseekFields");
 const thinkingEnabledInput = document.querySelector("#thinkingEnabled");
 const reasoningEffortSelect = document.querySelector("#reasoningEffort");
+const personalInstructionEnabledInput = document.querySelector("#personalInstructionEnabled");
+const personalInstructionInput = document.querySelector("#personalInstruction");
+const personalInstructionCount = document.querySelector("#personalInstructionCount");
 const allowedUrlPrefixesInput = document.querySelector("#allowedUrlPrefixes");
 const mcpConfigInput = document.querySelector("#mcpConfig");
 const settingsForm = document.querySelector("#settingsForm");
@@ -55,6 +64,10 @@ testButton.addEventListener("click", async () => {
   await testCurrentSettings();
 });
 
+personalInstructionInput.addEventListener("input", () => {
+  enforcePersonalInstructionLimit();
+});
+
 function renderProviderOptions() {
   providerSelect.textContent = "";
   for (const [value, label] of Object.entries(PROVIDER_LABELS)) {
@@ -84,6 +97,10 @@ function renderForm() {
   }
 
   allowedUrlPrefixesInput.value = (draft.allowedUrlPrefixes || []).join("\n");
+  personalInstructionEnabledInput.checked =
+    draft.personalInstruction?.enabled === true;
+  personalInstructionInput.value = draft.personalInstruction?.content || "";
+  updatePersonalInstructionCount();
   mcpConfigInput.value = stringifyMcpServers(draft.mcpServers || []);
 }
 
@@ -92,6 +109,7 @@ function syncDraftFromForm(providerName, options = {}) {
     allowedUrlPrefixesInput.value,
     options
   );
+  const personalInstruction = parsePersonalInstructionFromForm(options);
   const mcpServers = parseMcpConfigFromForm(options);
   const currentConfig = {
     ...draft[providerName],
@@ -114,6 +132,7 @@ function syncDraftFromForm(providerName, options = {}) {
   draft = mergeSettings({
     ...draft,
     allowedUrlPrefixes,
+    personalInstruction,
     mcpServers,
     [providerName]: currentConfig
   });
@@ -256,6 +275,42 @@ function parseMcpConfigFromForm(options = {}) {
   } catch {
     return draft.mcpServers || [];
   }
+}
+
+function parsePersonalInstructionFromForm(options = {}) {
+  const content = personalInstructionInput.value || "";
+  if (
+    options.strict &&
+    countPersonalInstructionChars(content) > MAX_PERSONAL_INSTRUCTION_CHARS
+  ) {
+    throw new Error(`个人指令最多 ${MAX_PERSONAL_INSTRUCTION_CHARS} 字。`);
+  }
+
+  return normalizePersonalInstruction({
+    enabled: personalInstructionEnabledInput.checked,
+    content
+  });
+}
+
+function enforcePersonalInstructionLimit() {
+  const chars = Array.from(personalInstructionInput.value || "");
+  if (chars.length > MAX_PERSONAL_INSTRUCTION_CHARS) {
+    personalInstructionInput.value = chars
+      .slice(0, MAX_PERSONAL_INSTRUCTION_CHARS)
+      .join("");
+  }
+
+  updatePersonalInstructionCount();
+}
+
+function updatePersonalInstructionCount() {
+  personalInstructionCount.textContent =
+    `${countPersonalInstructionChars(personalInstructionInput.value)}` +
+    `/${MAX_PERSONAL_INSTRUCTION_CHARS}`;
+}
+
+function countPersonalInstructionChars(value) {
+  return Array.from(String(value || "")).length;
 }
 
 function sendRuntimeMessage(message) {

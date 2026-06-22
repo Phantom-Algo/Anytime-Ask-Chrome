@@ -1,6 +1,6 @@
 # Anytime Ask
 
-当前版本：1.4.0（最近一次更新：2026.06.18）
+当前版本：1.5.0（最近一次更新：2026.06.22）
 
 > 在任意 AI 对话页面上划选文字，即可在侧边栏中追问——不污染原始对话。
 
@@ -27,6 +27,7 @@
 - **BYOK** - 你可以使用自己的 API Key，不受限于任何特定平台。
 - **实时流式输出** — Token 级实时渲染，体验与原对话一致。
 - **智能上下文管理** — 自动提取页面可见文字作为系统提示词；上下文缓存后仅在页面变化时重新发送，节省 Token。
+- **个人指令** — 可在设置页保存最长 1000 字的个人指令，并通过「启用」开关控制是否注入系统提示词。
 - **MCP 工具调用** — 可在设置页用 JSON 配置 `stdio` / `sse` MCP server，并在每个会话中选择启用一个或多个 MCP。模型可发现并调用 MCP tools，工具结果会回灌给模型继续回答。
 - **自有密钥** — 无后端、无代理。API Key 仅存储在浏览器本地。
 
@@ -41,6 +42,7 @@
 
 ### 个性化配置
 - **URL 白名单** — 控制在哪些页面启用（默认：ChatGPT、DeepSeek）。
+- **可开关的个人指令** — 内容保存在本地；关闭「启用」后即使已填写内容也不会发送给模型。
 - **可拖拽缩放** — 面板可拖拽移动、四边自由缩放。
 
 ---
@@ -81,9 +83,10 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 2. 或右键插件图标 → **选项**
 3. 在「厂商」下拉框中选择你的 AI 服务商
 4. 填入 API Key，必要时修改模型名称 / Base URL
-5. （可选）编辑 URL 前缀白名单，控制插件在哪些页面生效
-6. （可选）在 **MCP 配置 JSON** 中填写 MCP server 配置
-7. 点击 **保存** → 再点击 **测试配置** 验证连通性
+5. （可选）填写个人指令，并按需打开「启用」
+6. （可选）编辑 URL 前缀白名单，控制插件在哪些页面生效
+7. （可选）在 **MCP 配置 JSON** 中填写 MCP server 配置
+8. 点击 **保存** → 再点击 **测试配置** 验证连通性
 
 </details>
 
@@ -153,6 +156,14 @@ git clone https://github.com/Phantom-Algo/Anytime-Ask-Chrome.git
 - 自定义 Base URL（含 `http://localhost` 本地模型）
 - 独立的 API Key
 - 可调整 `max_tokens` 和 `temperature`
+
+---
+
+## 个人指令
+
+在设置页的 **个人指令** 区域可以填写最长 1000 字的偏好，例如回答语言、结构、详细程度或常用格式。个人指令保存在 `chrome.storage.local` 的设置对象中。
+
+只有打开「启用」后，个人指令才会随系统提示词一起发送给当前 AI provider；关闭「启用」时，已填写内容会继续保留在本地，但不会注入 prompt，也不会出现在请求中。
 
 ---
 
@@ -242,7 +253,8 @@ node scripts/install-native-host.mjs --extension-id <你的扩展 ID>
 
 - **零遥测** — 无埋点、无分析、无外部服务器。所有逻辑在浏览器本地运行。
 - **API Key** 仅存储在 `chrome.storage.local` 中，除向您配置的 AI 厂商发起请求外绝不出站。
-- **MCP 配置与对话历史** 仅存储在本地 `chrome.storage.local`。
+- **个人指令、MCP 配置与对话历史** 仅存储在本地 `chrome.storage.local`。
+- **个人指令** 只有在设置页打开「启用」后，才会在发送消息或测试配置时注入系统提示词。
 - **MCP 会话选择** 会随对应会话保存；发送消息时会把启用 MCP 的 tool schema 发送给当前 AI provider，并在模型请求时执行 MCP tool。
 - **MCP secrets**（如 `env` / `headers` 的值）不会注入 prompt，但会用于连接对应 MCP server 或 Native Messaging bridge。
 - **内容脚本** 仅在您配置的 URL 白名单页面生效。
