@@ -273,7 +273,11 @@ async function callOpenAICompatible(config, systemPrompt, messages, options = {}
     }
 
     const text = normalizeTextContent(assistantMessage.content);
+    const reasoningText = normalizeTextContent(assistantMessage.reasoning_content);
     if (!text) {
+      if (reasoningText) {
+        throw new Error("Provider 只返回了 thinking 内容，未返回最终回答；请提高 max_tokens 或关闭 DeepSeek thinking。");
+      }
       throw new Error("Provider 返回为空。");
     }
 
@@ -294,6 +298,7 @@ async function callOpenAICompatibleStream(config, systemPrompt, messages, option
     ...messages
   ];
   let fullText = "";
+  let lastStreamed = null;
 
   for (let round = 0; round <= MAX_TOOL_CALL_ROUNDS; round += 1) {
     const body = buildOpenAiBody(config, requestMessages, {
@@ -315,6 +320,7 @@ async function callOpenAICompatibleStream(config, systemPrompt, messages, option
       fullText += delta;
       options.onDelta(delta, fullText);
     });
+    lastStreamed = streamed;
 
     if (streamed.toolCalls.length && options.mcpRuntime && round < MAX_TOOL_CALL_ROUNDS) {
       requestMessages.push({
@@ -332,10 +338,22 @@ async function callOpenAICompatibleStream(config, systemPrompt, messages, option
   }
 
   if (!fullText.trim()) {
-    throw new Error("Provider 返回为空。");
+    throwEmptyOpenAiStreamError(lastStreamed);
   }
 
   return fullText.trim();
+
+  function throwEmptyOpenAiStreamError(streamed) {
+    const finishReason = streamed?.finishReason
+      ? `（finish_reason: ${streamed.finishReason}）`
+      : "";
+    if (streamed?.reasoningText?.trim()) {
+      throw new Error(
+        `Provider 只返回了 thinking 内容，未返回最终回答${finishReason}；请提高 max_tokens 或关闭 DeepSeek thinking。`
+      );
+    }
+    throw new Error(`Provider 返回为空${finishReason}。`);
+  }
 }
 
 async function callAnthropic(config, systemPrompt, messages, options = {}) {
@@ -450,12 +468,21 @@ function buildOpenAiBody(config, messages, options = {}) {
     body.tool_choice = "auto";
   }
 
-  if (options.includeDeepSeekThinking && config.thinkingEnabled) {
-    body.thinking = { type: "enabled" };
-    body.reasoning_effort = config.reasoningEffort || "medium";
+  if (options.includeDeepSeekThinking) {
+    body.thinking = {
+      type: config.thinkingEnabled ? "enabled" : "disabled"
+    };
+    if (config.thinkingEnabled) {
+      body.reasoning_effort = normalizeDeepSeekReasoningEffort(config.reasoningEffort);
+    }
   }
 
   return body;
+}
+
+function normalizeDeepSeekReasoningEffort(value) {
+  const normalized = String(value || "high").trim().toLowerCase();
+  return normalized === "max" || normalized === "xhigh" ? "max" : "high";
 }
 
 function buildAnthropicBody(config, systemPrompt, messages, options = {}) {
@@ -477,6 +504,8 @@ function buildAnthropicBody(config, systemPrompt, messages, options = {}) {
 
 async function readOpenAiStreamResponse(response, onDelta) {
   let text = "";
+  let reasoningText = "";
+  let finishReason = "";
   const toolCallParts = [];
 
   await readSseStream(response, (event) => {
@@ -485,11 +514,25 @@ async function readOpenAiStreamResponse(response, onDelta) {
     }
 
     const chunk = parseMaybeJson(event.data);
-    const delta = chunk?.choices?.[0]?.delta;
-    const content = String(delta?.content || "");
+    if (chunk?.error) {
+      throw new Error(formatProviderErrorMessage(chunk.error));
+    }
+
+    const choice = chunk?.choices?.[0];
+    const delta = choice?.delta;
+    if (choice?.finish_reason) {
+      finishReason = choice.finish_reason;
+    }
+
+    const content = normalizeTextContent(delta?.content, { trim: false });
     if (content) {
       text += content;
       onDelta(content);
+    }
+
+    const reasoningContent = normalizeTextContent(delta?.reasoning_content, { trim: false });
+    if (reasoningContent) {
+      reasoningText += reasoningContent;
     }
 
     if (Array.isArray(delta?.tool_calls)) {
@@ -515,6 +558,8 @@ async function readOpenAiStreamResponse(response, onDelta) {
 
   return {
     text,
+    reasoningText,
+    finishReason,
     toolCalls: normalizeOpenAiToolCalls(toolCallParts)
   };
 }
@@ -815,21 +860,33 @@ function formatHttpError(status, data, text) {
   return `Provider 请求失败（HTTP ${status}）：${String(message).slice(0, 600)}`;
 }
 
-function normalizeTextContent(content) {
+function formatProviderErrorMessage(error) {
+  const message =
+    error?.message ||
+    error?.error?.message ||
+    error?.type ||
+    JSON.stringify(error) ||
+    "未知错误";
+  return `Provider stream 返回错误：${String(message).slice(0, 600)}`;
+}
+
+function normalizeTextContent(content, options = {}) {
+  const shouldTrim = options.trim !== false;
+
   if (typeof content === "string") {
-    return content.trim();
+    return shouldTrim ? content.trim() : content;
   }
 
   if (Array.isArray(content)) {
-    return content
+    const text = content
       .map((part) => {
         if (typeof part === "string") {
           return part;
         }
-        return part?.text || "";
+        return part?.text || part?.content || part?.value || "";
       })
-      .join("\n")
-      .trim();
+      .join(shouldTrim ? "\n" : "");
+    return shouldTrim ? text.trim() : text;
   }
 
   return "";
